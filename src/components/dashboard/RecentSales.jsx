@@ -8,7 +8,7 @@ export function RecentSales() {
 
   useEffect(() => {
     const fetchVentas = async () => {
-      const q = query(collection(db, "pedidos"), orderBy("creadoEn", "desc"), limit(5))
+      const q = query(collection(db, "pedidos"), orderBy("creado", "desc"), limit(5))
       const snapshot = await getDocs(q)
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       setVentas(data.filter((v) => v.estado === "pagado"))

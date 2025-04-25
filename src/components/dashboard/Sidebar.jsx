@@ -23,9 +23,9 @@ import { Button } from "@/components/ui/button"
 const sidebarLinks = [
   { title: "Dashboard", href: "/admindashboard", icon: LayoutDashboard },
   { title: "Productos", href: "/admindashboard/new", icon: Package },
-  { title: "Pedidos", href: "/dashboard/pedidos", icon: ShoppingBag },
+  { title: "Pedidos", href: "/admindashboard/pedidos", icon: ShoppingBag },
   { title: "Clientes", href: "/dashboard/clientes", icon: Users },
-  { title: "Materiales", href: "/dashboard/materiales", icon: Palette },
+  { title: "Editor de Precios", href: "/admindashboard/priceconfig", icon: Palette },
   { title: "Medidas", href: "/dashboard/medidas", icon: Ruler },
   { title: "Envíos", href: "/dashboard/envios", icon: Truck },
   { title: "Estadísticas", href: "/dashboard/estadisticas", icon: BarChart3 },

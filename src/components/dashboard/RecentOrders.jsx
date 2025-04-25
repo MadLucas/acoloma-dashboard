@@ -18,11 +18,16 @@ export function RecentOrders() {
 
   useEffect(() => {
     const fetchOrders = async () => {
-      const q = query(collection(db, "pedidos"), orderBy("creadoEn", "desc"), limit(5))
-      const snapshot = await getDocs(q)
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-      setOrders(data)
+      try {
+        const q = query(collection(db, "pedidos"), orderBy("creado", "desc"), limit(5))
+        const snapshot = await getDocs(q)
+        const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        setOrders(data)
+      } catch (error) {
+        console.error("Error al obtener pedidos:", error)
+      }
     }
+
     fetchOrders()
   }, [])
 
@@ -32,7 +37,7 @@ export function RecentOrders() {
         <TableRow>
           <TableHead className="w-[100px]">Pedido</TableHead>
           <TableHead>Cliente</TableHead>
-          <TableHead>Producto</TableHead>
+          <TableHead>Comuna</TableHead>
           <TableHead>Fecha</TableHead>
           <TableHead>Estado</TableHead>
           <TableHead>Total</TableHead>
@@ -46,11 +51,9 @@ export function RecentOrders() {
             <TableCell>
               {order.cliente?.nombre} {order.cliente?.apellidos || "-"}
             </TableCell>
+            <TableCell>{order.cliente?.comuna || "-"}</TableCell>
             <TableCell>
-              {order.items?.length > 0 ? order.items[0].producto : "Sin productos"}
-            </TableCell>
-            <TableCell>
-              {order.creadoEn?.toDate().toLocaleDateString("es-CL") || "-"}
+              {order.creado?.toDate?.().toLocaleDateString("es-CL") || "-"}
             </TableCell>
             <TableCell>
               <Badge

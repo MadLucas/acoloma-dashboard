@@ -1,4 +1,4 @@
-// app/admin/page.jsx
+// app/admindashboard/new/
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,23 +9,24 @@ import {
   getDocs,
   serverTimestamp,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-} from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 export default function AdminDashboard() {
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [tipoCalculo, setTipoCalculo] = useState("m2");
   const [precioM2, setPrecioM2] = useState("");
-  const [archivoTabla, setArchivoTabla] = useState(null);
   const [imagenProducto, setImagenProducto] = useState(null);
   const [anchoMin, setAnchoMin] = useState("");
   const [anchoMax, setAnchoMax] = useState("");
@@ -41,6 +42,18 @@ export default function AdminDashboard() {
 
   const [mensaje, setMensaje] = useState(null);
   const [subiendo, setSubiendo] = useState(false);
+
+  const [listasDisponibles, setListasDisponibles] = useState([]);
+  const [listaSeleccionada, setListaSeleccionada] = useState("");
+
+  useEffect(() => {
+    const obtenerListas = async () => {
+      const snapshot = await getDocs(collection(db, "listaDePrecios"));
+      const nombres = snapshot.docs.map((doc) => doc.id);
+      setListasDisponibles(nombres);
+    };
+    obtenerListas();
+  }, []);
 
   const agregarVariante = async () => {
     if (!nuevaVariante.trim()) return;
@@ -75,36 +88,45 @@ export default function AdminDashboard() {
   const guardarProducto = async () => {
     setSubiendo(true);
     let imagenUrl = null;
-    let archivoTablaUrl = null;
 
-    if (imagenProducto) {
-      const refImg = ref(storage, `productos/${Date.now()}_${imagenProducto.name}`);
-      const snap = await uploadBytes(refImg, imagenProducto);
-      imagenUrl = await getDownloadURL(snap.ref);
+    try {
+      if (imagenProducto) {
+        const refImg = ref(storage, `productos/${Date.now()}_${imagenProducto.name}`);
+        const snap = await uploadBytes(refImg, imagenProducto);
+        imagenUrl = await getDownloadURL(snap.ref);
+      }
+
+      await addDoc(collection(db, "productos"), {
+        nombre,
+        descripcion,
+        tipoCalculo,
+        precioM2: tipoCalculo === "m2" ? Number(precioM2) : null,
+        listaDePrecios: tipoCalculo === "tabla" ? listaSeleccionada : null,
+        variantes,
+        accesorios,
+        anchoMin: anchoMin ? Number(anchoMin) : null,
+        anchoMax: anchoMax ? Number(anchoMax) : null,
+        imagenUrl,
+        creadoEn: serverTimestamp(),
+      });
+
+      setMensaje("Producto guardado correctamente");
+      setNombre("");
+      setDescripcion("");
+      setTipoCalculo("m2");
+      setPrecioM2("");
+      setImagenProducto(null);
+      setAnchoMin("");
+      setAnchoMax("");
+      setVariantes([]);
+      setAccesorios([]);
+      setListaSeleccionada("");
+    } catch (error) {
+      console.error("Error al guardar producto:", error);
+      setMensaje(`Error: ${error.message}`);
+    } finally {
+      setSubiendo(false);
     }
-
-    if (tipoCalculo === "tabla" && archivoTabla) {
-      const refTabla = ref(storage, `tablas/${archivoTabla.name}`);
-      const snap = await uploadBytes(refTabla, archivoTabla);
-      archivoTablaUrl = await getDownloadURL(snap.ref);
-    }
-
-    await addDoc(collection(db, "productos"), {
-      nombre,
-      descripcion,
-      tipoCalculo,
-      precioM2: tipoCalculo === "m2" ? Number(precioM2) : null,
-      archivoTablaUrl,
-      variantes,
-      accesorios,
-      anchoMin: Number(anchoMin),
-      anchoMax: Number(anchoMax),
-      imagenUrl,
-      creadoEn: serverTimestamp(),
-    });
-
-    setMensaje("Producto guardado correctamente");
-    setSubiendo(false);
   };
 
   return (
@@ -129,10 +151,12 @@ export default function AdminDashboard() {
         <div>
           <Label>Tipo de cálculo</Label>
           <Select value={tipoCalculo} onValueChange={setTipoCalculo}>
-            <SelectTrigger><SelectValue placeholder="Selecciona tipo" /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecciona tipo" />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="m2">Por m²</SelectItem>
-              <SelectItem value="tabla">Por tabla Excel</SelectItem>
+              <SelectItem value="tabla">Por tabla</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -144,10 +168,22 @@ export default function AdminDashboard() {
         )}
         {tipoCalculo === "tabla" && (
           <div>
-            <Label>Archivo Excel</Label>
-            <Input type="file" onChange={(e) => setArchivoTabla(e.target.files[0])} />
+            <Label>Lista de precios</Label>
+            <Select value={listaSeleccionada} onValueChange={setListaSeleccionada}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona una lista" />
+              </SelectTrigger>
+              <SelectContent>
+                {listasDisponibles.map((nombre) => (
+                  <SelectItem key={nombre} value={nombre}>
+                    {nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Ancho mínimo (cm)</Label>
@@ -164,7 +200,9 @@ export default function AdminDashboard() {
           <div className="flex gap-2 mb-2">
             <Input placeholder="Nombre" value={nuevaVariante} onChange={(e) => setNuevaVariante(e.target.value)} />
             <Select value={nuevoStock} onValueChange={setNuevoStock}>
-              <SelectTrigger><SelectValue placeholder="Stock" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Stock" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="disponible">Disponible</SelectItem>
                 <SelectItem value="agotado">Agotado</SelectItem>
@@ -177,9 +215,7 @@ export default function AdminDashboard() {
             {variantes.map((v, i) => (
               <li key={i} className="flex justify-between items-center">
                 <span>{v.nombre} – {v.stock}</span>
-                <Button variant="outline" size="sm" onClick={() => eliminarVariante(i)}>
-                  Eliminar
-                </Button>
+                <Button variant="outline" size="sm" onClick={() => eliminarVariante(i)}>Eliminar</Button>
               </li>
             ))}
           </ul>
@@ -196,15 +232,15 @@ export default function AdminDashboard() {
             {accesorios.map((a, i) => (
               <li key={i} className="flex justify-between items-center">
                 <span>{a.nombre}: ${a.valor}</span>
-                <Button variant="outline" size="sm" onClick={() => eliminarAccesorio(i)}>
-                  Eliminar
-                </Button>
+                <Button variant="outline" size="sm" onClick={() => eliminarAccesorio(i)}>Eliminar</Button>
               </li>
             ))}
           </ul>
         </div>
 
-        <Button onClick={guardarProducto} disabled={subiendo}>Guardar producto</Button>
+        <Button onClick={guardarProducto} disabled={subiendo}>
+          Guardar producto
+        </Button>
       </div>
     </div>
   );
