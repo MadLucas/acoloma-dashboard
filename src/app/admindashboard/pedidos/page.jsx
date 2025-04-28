@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, updateDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   Table,
@@ -13,34 +13,82 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Eye } from "lucide-react";
+import { Eye, RefreshCw } from "lucide-react";
 import { PedidoDetalleModal } from "@/components/PedidoDetalleModal";
 
 export default function PedidosDashboard() {
   const [pedidos, setPedidos] = useState([]);
   const [selectedPedido, setSelectedPedido] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchPedidos = async () => {
+    try {
+      const q = query(collection(db, "pedidos"), orderBy("creado", "desc"));
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setPedidos(data);
+    } catch (error) {
+      console.error("Error al obtener pedidos:", error);
+    }
+  };
 
   useEffect(() => {
-    const fetchPedidos = async () => {
-      try {
-        const q = query(collection(db, "pedidos"), orderBy("creado", "desc"));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setPedidos(data);
-      } catch (error) {
-        console.error("Error al obtener pedidos:", error);
-      }
-    };
-
     fetchPedidos();
   }, []);
 
+  const actualizarEstadosDePagos = async () => {
+    try {
+      setLoading(true);
+
+      for (const pedido of pedidos) {
+        if (pedido.estado === "pendiente" && pedido.preferenceId) {
+          const response = await fetch(
+            `https://api.mercadopago.com/v1/payments/search?external_reference=${pedido.preferenceId}`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${process.env.NEXT_PUBLIC_MERCADOPAGO_ACCESS_TOKEN}`,
+              },
+            }
+          );
+
+          const result = await response.json();
+          const status = result?.results?.[0]?.status;
+
+          if (status) {
+            let nuevoEstado = "pendiente";
+            if (status === "approved") nuevoEstado = "pagado";
+            if (status === "rejected") nuevoEstado = "rechazado";
+
+            await updateDoc(doc(db, "pedidos", pedido.id), {
+              estado: nuevoEstado,
+            });
+          }
+        }
+      }
+
+      await fetchPedidos(); // Refresca la tabla después de actualizar
+      alert("Estados actualizados correctamente.");
+    } catch (error) {
+      console.error("Error al actualizar estados:", error);
+      alert("Ocurrió un error al actualizar los estados.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Pedidos</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold">Pedidos</h1>
+        <Button onClick={actualizarEstadosDePagos} disabled={loading}>
+          <RefreshCw className="w-4 h-4 mr-2" /> {loading ? "Actualizando..." : "Actualizar estados"}
+        </Button>
+      </div>
+
       <Table>
         <TableHeader>
           <TableRow>

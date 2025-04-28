@@ -21,6 +21,13 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+  DialogTitle,
+} from "@/components/ui/dialog"; // importa Dialog
+import { doc, updateDoc } from "firebase/firestore";
 
 export default function AdminDashboard() {
   const [nombre, setNombre] = useState("");
@@ -46,24 +53,45 @@ export default function AdminDashboard() {
   const [listasDisponibles, setListasDisponibles] = useState([]);
   const [listaSeleccionada, setListaSeleccionada] = useState("");
 
+  const [motores, setMotores] = useState([]);
+  const [nombreMotor, setNombreMotor] = useState("");
+  const [valorMotor, setValorMotor] = useState("");
+
+  const [productos, setProductos] = useState([]);
+  const [productoEditandoId, setProductoEditandoId] = useState(null);
+  const [abrirModalProductos, setAbrirModalProductos] = useState(false);
+
   useEffect(() => {
-    const obtenerListas = async () => {
-      const snapshot = await getDocs(collection(db, "listaDePrecios"));
-      const nombres = snapshot.docs.map((doc) => doc.id);
-      setListasDisponibles(nombres);
+    const obtenerDatos = async () => {
+      const listasSnapshot = await getDocs(collection(db, "listaDePrecios"));
+      const nombresListas = listasSnapshot.docs.map((doc) => doc.id);
+      setListasDisponibles(nombresListas);
+
+      const productosSnapshot = await getDocs(collection(db, "productos"));
+      const productosData = productosSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setProductos(productosData);
     };
-    obtenerListas();
+    obtenerDatos();
   }, []);
 
   const agregarVariante = async () => {
     if (!nuevaVariante.trim()) return;
     let imagenUrl = null;
     if (nuevaImagenVariante) {
-      const refImg = ref(storage, `variantes/${Date.now()}_${nuevaImagenVariante.name}`);
+      const refImg = ref(
+        storage,
+        `variantes/${Date.now()}_${nuevaImagenVariante.name}`
+      );
       const snap = await uploadBytes(refImg, nuevaImagenVariante);
       imagenUrl = await getDownloadURL(snap.ref);
     }
-    setVariantes((prev) => [...prev, { nombre: nuevaVariante, stock: nuevoStock, imagenUrl }]);
+    setVariantes((prev) => [
+      ...prev,
+      { nombre: nuevaVariante, stock: nuevoStock, imagenUrl },
+    ]);
     setNuevaVariante("");
     setNuevoStock("disponible");
     setNuevaImagenVariante(null);
@@ -75,10 +103,28 @@ export default function AdminDashboard() {
 
   const agregarAccesorio = () => {
     if (accesorioNombre && accesorioValor) {
-      setAccesorios((prev) => [...prev, { nombre: accesorioNombre, valor: Number(accesorioValor) }]);
+      setAccesorios((prev) => [
+        ...prev,
+        { nombre: accesorioNombre, valor: Number(accesorioValor) },
+      ]);
       setAccesorioNombre("");
       setAccesorioValor("");
     }
+  };
+
+  const agregarMotor = () => {
+    if (nombreMotor && valorMotor) {
+      setMotores((prev) => [
+        ...prev,
+        { nombre: nombreMotor, valor: Number(valorMotor) },
+      ]);
+      setNombreMotor("");
+      setValorMotor("");
+    }
+  };
+
+  const eliminarMotor = (index) => {
+    setMotores((prev) => prev.filter((_, i) => i !== index));
   };
 
   const eliminarAccesorio = (index) => {
@@ -87,16 +133,19 @@ export default function AdminDashboard() {
 
   const guardarProducto = async () => {
     setSubiendo(true);
-    let imagenUrl = null;
+    let imagenUrlFinal = imagenProducto || null;
 
     try {
-      if (imagenProducto) {
-        const refImg = ref(storage, `productos/${Date.now()}_${imagenProducto.name}`);
+      if (imagenProducto && typeof imagenProducto !== "string") {
+        const refImg = ref(
+          storage,
+          `productos/${Date.now()}_${imagenProducto.name}`
+        );
         const snap = await uploadBytes(refImg, imagenProducto);
-        imagenUrl = await getDownloadURL(snap.ref);
+        imagenUrlFinal = await getDownloadURL(snap.ref);
       }
 
-      await addDoc(collection(db, "productos"), {
+      const datosProducto = {
         nombre,
         descripcion,
         tipoCalculo,
@@ -104,13 +153,27 @@ export default function AdminDashboard() {
         listaDePrecios: tipoCalculo === "tabla" ? listaSeleccionada : null,
         variantes,
         accesorios,
+        motores,
         anchoMin: anchoMin ? Number(anchoMin) : null,
         anchoMax: anchoMax ? Number(anchoMax) : null,
-        imagenUrl,
-        creadoEn: serverTimestamp(),
-      });
+        imagenUrl: imagenUrlFinal,
+        actualizadoEn: serverTimestamp(),
+      };
 
-      setMensaje("Producto guardado correctamente");
+      if (productoEditandoId) {
+        const productoRef = doc(db, "productos", productoEditandoId);
+        await updateDoc(productoRef, datosProducto);
+        setMensaje("Producto actualizado correctamente");
+      } else {
+        await addDoc(collection(db, "productos"), {
+          ...datosProducto,
+          creadoEn: serverTimestamp(),
+        });
+        setMensaje("Producto guardado correctamente");
+      }
+
+      // Reset
+      setProductoEditandoId(null);
       setNombre("");
       setDescripcion("");
       setTipoCalculo("m2");
@@ -120,6 +183,7 @@ export default function AdminDashboard() {
       setAnchoMax("");
       setVariantes([]);
       setAccesorios([]);
+      setMotores([]);
       setListaSeleccionada("");
     } catch (error) {
       console.error("Error al guardar producto:", error);
@@ -127,6 +191,21 @@ export default function AdminDashboard() {
     } finally {
       setSubiendo(false);
     }
+  };
+
+  const cargarProductoEnFormulario = (producto) => {
+    setProductoEditandoId(producto.id);
+    setNombre(producto.nombre || "");
+    setDescripcion(producto.descripcion || "");
+    setTipoCalculo(producto.tipoCalculo || "m2");
+    setPrecioM2(producto.precioM2 || "");
+    setListaSeleccionada(producto.listaDePrecios || "");
+    setVariantes(producto.variantes || []);
+    setAccesorios(producto.accesorios || []);
+    setMotores(producto.motores || []);
+    setAnchoMin(producto.anchoMin || "");
+    setAnchoMax(producto.anchoMax || "");
+    setAbrirModalProductos(false);
   };
 
   return (
@@ -142,11 +221,17 @@ export default function AdminDashboard() {
         </div>
         <div>
           <Label>Descripción</Label>
-          <Textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
+          <Textarea
+            value={descripcion}
+            onChange={(e) => setDescripcion(e.target.value)}
+          />
         </div>
         <div>
           <Label>Imagen del producto</Label>
-          <Input type="file" onChange={(e) => setImagenProducto(e.target.files[0])} />
+          <Input
+            type="file"
+            onChange={(e) => setImagenProducto(e.target.files[0])}
+          />
         </div>
         <div>
           <Label>Tipo de cálculo</Label>
@@ -163,13 +248,20 @@ export default function AdminDashboard() {
         {tipoCalculo === "m2" && (
           <div>
             <Label>Precio por m²</Label>
-            <Input type="number" value={precioM2} onChange={(e) => setPrecioM2(e.target.value)} />
+            <Input
+              type="number"
+              value={precioM2}
+              onChange={(e) => setPrecioM2(e.target.value)}
+            />
           </div>
         )}
         {tipoCalculo === "tabla" && (
           <div>
             <Label>Lista de precios</Label>
-            <Select value={listaSeleccionada} onValueChange={setListaSeleccionada}>
+            <Select
+              value={listaSeleccionada}
+              onValueChange={setListaSeleccionada}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona una lista" />
               </SelectTrigger>
@@ -187,20 +279,32 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Ancho mínimo (cm)</Label>
-            <Input type="number" value={anchoMin} onChange={(e) => setAnchoMin(e.target.value)} />
+            <Input
+              type="number"
+              value={anchoMin}
+              onChange={(e) => setAnchoMin(e.target.value)}
+            />
           </div>
           <div>
             <Label>Ancho máximo (cm)</Label>
-            <Input type="number" value={anchoMax} onChange={(e) => setAnchoMax(e.target.value)} />
+            <Input
+              type="number"
+              value={anchoMax}
+              onChange={(e) => setAnchoMax(e.target.value)}
+            />
           </div>
         </div>
 
         <div>
           <h3 className="font-semibold">Variantes</h3>
           <div className="flex gap-2 mb-2">
-            <Input placeholder="Nombre" value={nuevaVariante} onChange={(e) => setNuevaVariante(e.target.value)} />
+            <Input
+              placeholder="Nombre"
+              value={nuevaVariante}
+              onChange={(e) => setNuevaVariante(e.target.value)}
+            />
             <Select value={nuevoStock} onValueChange={setNuevoStock}>
-              <SelectTrigger>
+              <SelectTrigger className="min-w-[150px]">
                 <SelectValue placeholder="Stock" />
               </SelectTrigger>
               <SelectContent>
@@ -208,14 +312,40 @@ export default function AdminDashboard() {
                 <SelectItem value="agotado">Agotado</SelectItem>
               </SelectContent>
             </Select>
-            <Input type="file" onChange={(e) => setNuevaImagenVariante(e.target.files[0])} />
+
+            <Input
+              type="file"
+              onChange={(e) => setNuevaImagenVariante(e.target.files[0])}
+            />
             <Button onClick={agregarVariante}>Agregar</Button>
           </div>
           <ul className="text-sm text-gray-600 space-y-1">
             {variantes.map((v, i) => (
-              <li key={i} className="flex justify-between items-center">
-                <span>{v.nombre} – {v.stock}</span>
-                <Button variant="outline" size="sm" onClick={() => eliminarVariante(i)}>Eliminar</Button>
+              <li key={i} className="flex justify-between items-center gap-4">
+                <span className="flex-1">{v.nombre}</span>
+                <Select
+                  value={v.stock}
+                  onValueChange={(valor) => {
+                    const nuevas = [...variantes];
+                    nuevas[i].stock = valor;
+                    setVariantes(nuevas);
+                  }}
+                >
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="disponible">Disponible</SelectItem>
+                    <SelectItem value="agotado">Agotado</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => eliminarVariante(i)}
+                >
+                  Eliminar
+                </Button>
               </li>
             ))}
           </ul>
@@ -224,15 +354,66 @@ export default function AdminDashboard() {
         <div>
           <h3 className="font-semibold">Accesorios</h3>
           <div className="flex gap-2 mb-2">
-            <Input placeholder="Nombre" value={accesorioNombre} onChange={(e) => setAccesorioNombre(e.target.value)} />
-            <Input placeholder="Valor" type="number" value={accesorioValor} onChange={(e) => setAccesorioValor(e.target.value)} />
+            <Input
+              placeholder="Nombre"
+              value={accesorioNombre}
+              onChange={(e) => setAccesorioNombre(e.target.value)}
+            />
+            <Input
+              placeholder="Valor"
+              type="number"
+              value={accesorioValor}
+              onChange={(e) => setAccesorioValor(e.target.value)}
+            />
             <Button onClick={agregarAccesorio}>Agregar</Button>
           </div>
           <ul className="text-sm text-gray-600 space-y-1">
             {accesorios.map((a, i) => (
               <li key={i} className="flex justify-between items-center">
-                <span>{a.nombre}: ${a.valor}</span>
-                <Button variant="outline" size="sm" onClick={() => eliminarAccesorio(i)}>Eliminar</Button>
+                <span>
+                  {a.nombre}: ${a.valor}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => eliminarAccesorio(i)}
+                >
+                  Eliminar
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="font-semibold">Motorizaciones</h3>
+          <div className="flex gap-2 mb-2">
+            <Input
+              placeholder="Nombre del motor"
+              value={nombreMotor}
+              onChange={(e) => setNombreMotor(e.target.value)}
+            />
+            <Input
+              placeholder="Valor"
+              type="number"
+              value={valorMotor}
+              onChange={(e) => setValorMotor(e.target.value)}
+            />
+            <Button onClick={agregarMotor}>Agregar</Button>
+          </div>
+          <ul className="text-sm text-gray-600 space-y-1">
+            {motores.map((m, i) => (
+              <li key={i} className="flex justify-between items-center">
+                <span>
+                  {m.nombre}: ${m.valor}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => eliminarMotor(i)}
+                >
+                  Eliminar
+                </Button>
               </li>
             ))}
           </ul>
@@ -242,6 +423,31 @@ export default function AdminDashboard() {
           Guardar producto
         </Button>
       </div>
+      <Dialog open={abrirModalProductos} onOpenChange={setAbrirModalProductos}>
+        <DialogTrigger asChild>
+          <Button variant="outline" className="mb-4">
+            Editar productos
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogTitle>Editar productos</DialogTitle>{" "}
+          {/* 🔧 ESTA LÍNEA SOLUCIONA EL ERROR */}
+          <h3 className="font-semibold text-lg mb-2">
+            Selecciona un producto para editar
+          </h3>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {productos.map((producto) => (
+              <div
+                key={producto.id}
+                className="border p-2 rounded hover:bg-gray-100 cursor-pointer"
+                onClick={() => cargarProductoEnFormulario(producto)}
+              >
+                {producto.nombre}
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
